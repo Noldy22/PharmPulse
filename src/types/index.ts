@@ -44,6 +44,23 @@ export interface PaymentDetails {
   credit?: CreditPaymentDetails;
 }
 
+export type StaffRole = 'owner' | 'pharmacist' | 'dispenser' | 'cashier';
+
+export interface StaffUser {
+  id: string;
+  tenantId: string;
+  username: string;
+  fullName: string;
+  role: StaffRole;
+  pin: string; // 4-digit PIN for counter shift authorization
+  phone?: string;
+  email?: string;
+  isActive: boolean;
+  avatarColor: string;
+  created_at: string;
+  lastLoginAt?: string;
+}
+
 export interface Product {
   id: string;
   tenantId: string;
@@ -56,7 +73,7 @@ export interface Product {
   packSize: number; // e.g. 14 tablets per pack/box
   unitName: string; // e.g. 'Tablet', 'Capsule', 'Strip', 'Bottle'
   reorderThreshold: number; // Low stock threshold in packs
-  buyingPrice: number; // Cost price per pack
+  buyingPrice: number; // Cost price per pack (Owner view only)
   sellingPrice: number; // Selling price per pack
   unitSellingPrice: number; // Selling price per individual unit/tablet
   isPom: boolean; // Prescription Only Medicine
@@ -73,7 +90,7 @@ export interface Batch {
   productId: string;
   batchNumber: string;
   expiryDate: string; // ISO date YYYY-MM-DD
-  quantity: number; // Quantity in packs on hand (can be fractional if loose units sold)
+  quantity: number; // Quantity in packs on hand
   costPrice: number; // Unit buying price for this batch
   supplier?: string;
   manufacturingDate?: string;
@@ -87,17 +104,17 @@ export interface Batch {
 export type UnitType = 'pack' | 'unit';
 
 export interface CartItem {
-  id: string; // unique item line id
+  id: string;
   productId: string;
   product: Product;
   batchId: string;
   batch: Batch;
-  unitType: UnitType; // 'pack' or 'unit'
+  unitType: UnitType;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
   costPrice: number;
-  discount: number; // percentage or fixed
+  discount: number;
 }
 
 export interface SaleItem {
@@ -124,7 +141,7 @@ export interface SaleItem {
 export interface Sale {
   id: string;
   tenantId: string;
-  receiptNumber: string; // e.g. REC-20261004-001
+  receiptNumber: string;
   itemsCount: number;
   subtotal: number;
   discount: number;
@@ -136,6 +153,7 @@ export interface Sale {
   paymentDetails: PaymentDetails;
   amountPaid: number;
   changeGiven: number;
+  attendantId?: string;
   attendantName: string;
   patientName?: string;
   patientPhone?: string;
@@ -152,6 +170,8 @@ export interface Sale {
 export interface HeldSale {
   id: string;
   heldAt: string;
+  attendantId?: string;
+  attendantName?: string;
   customerRef?: string;
   items: CartItem[];
   patientName?: string;
@@ -175,10 +195,11 @@ export interface StockAdjustment {
   batchId: string;
   batchNumber: string;
   adjustmentType: StockAdjustmentType;
-  quantityChange: number; // positive or negative
+  quantityChange: number;
   previousQuantity: number;
   newQuantity: number;
   reason: string;
+  attendantId?: string;
   attendantName: string;
   synced: boolean;
   created_at: string;
@@ -187,10 +208,11 @@ export interface StockAdjustment {
 export interface AuditLog {
   id: string;
   tenantId: string;
-  action: string; // 'SALE_COMPLETED' | 'STOCK_ADJUSTED' | 'PRICE_UPDATED' | 'PRODUCT_CREATED' | 'BATCH_QUARANTINED' | 'SYNC_TRIGGERED'
-  category: 'pos' | 'inventory' | 'license' | 'system' | 'supervision';
+  action: string;
+  category: 'pos' | 'inventory' | 'license' | 'system' | 'supervision' | 'auth';
   details: string;
   entityId?: string;
+  attendantId?: string;
   attendantName: string;
   metadata?: Record<string, unknown>;
   synced: boolean;
@@ -208,14 +230,14 @@ export interface StoreLicense {
   activatedAt: string;
   validUntil: string;
   lastOnlinePing: string;
-  offlineGraceDays: number; // Default: 7 days
+  offlineGraceDays: number;
   isValid: boolean;
 }
 
 export interface SyncOutboxItem {
   id: string;
   tenantId: string;
-  table: string; // 'products' | 'batches' | 'sales' | 'sale_items' | 'stock_adjustments' | 'audit_logs'
+  table: string;
   action: 'INSERT' | 'UPDATE' | 'DELETE';
   recordId: string;
   payload: Record<string, unknown>;
@@ -232,10 +254,10 @@ export interface StoreSettings {
   address: string;
   phone: string;
   email?: string;
-  tinNumber?: string; // Tax Identification Number
+  tinNumber?: string;
   currencySymbol: string;
   currencyCode: string;
-  taxRate: number; // e.g. 0.18 for 18% VAT or 0 if tax-exempt
+  taxRate: number;
   taxInclusive: boolean;
   enableSoundBeeps: boolean;
   supabaseUrl?: string;

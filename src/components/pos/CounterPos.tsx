@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Product, Batch, CartItem, PaymentMethod, PaymentDetails, Sale, SaleItem, HeldSale, StoreSettings, StoreLicense } from '../../types';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Product, Batch, CartItem, PaymentMethod, PaymentDetails, Sale, SaleItem, HeldSale, StoreSettings, StoreLicense, StaffUser } from '../../types';
 import { db } from '../../db/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ProductCatalog } from './ProductCatalog';
@@ -13,9 +13,10 @@ import { syncEngine } from '../../lib/syncEngine';
 interface CounterPosProps {
   settings: StoreSettings | null;
   license: StoreLicense | null;
+  currentUser: StaffUser;
 }
 
-export const CounterPos: React.FC<CounterPosProps> = ({ settings, license }) => {
+export const CounterPos: React.FC<CounterPosProps> = ({ settings, license, currentUser }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
   const [patientName, setPatientName] = useState<string>('');
@@ -175,6 +176,8 @@ export const CounterPos: React.FC<CounterPosProps> = ({ settings, license }) => 
     const held: HeldSale = {
       id: `held-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       heldAt: new Date().toISOString(),
+      attendantId: currentUser.id,
+      attendantName: currentUser.fullName,
       customerRef: patientName || `Customer (${cartItems.length} items)`,
       items: cartItems,
       patientName,
@@ -183,7 +186,7 @@ export const CounterPos: React.FC<CounterPosProps> = ({ settings, license }) => 
     };
     await db.held_sales.put(held);
     handleClearCart();
-  }, [cartItems, patientName, doctorName, dispenseNotes, handleClearCart]);
+  }, [cartItems, patientName, doctorName, dispenseNotes, handleClearCart, currentUser]);
 
   // Resume a held sale
   const handleResumeHeldSale = async (held: HeldSale) => {
@@ -212,10 +215,12 @@ export const CounterPos: React.FC<CounterPosProps> = ({ settings, license }) => 
     autoPrintThermal: boolean
   ) => {
     const tenantId = license?.tenantId || settings?.tenantId || 'demo-tenant-pharmpulse';
-    const attendantName = settings?.currentAttendant || 'Pharm. David Ndunguru';
+    const attendantId = currentUser.id;
+    const attendantName = currentUser.fullName;
 
     const result = await db.checkoutSale({
       tenantId,
+      attendantId,
       attendantName,
       items: cartItems,
       paymentMethod,

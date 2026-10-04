@@ -14,6 +14,7 @@ import {
   PaymentMethod,
   PaymentDetails,
   StockAdjustmentType,
+  StaffUser,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -21,6 +22,7 @@ import {
   INITIAL_SALES,
   INITIAL_AUDIT_LOGS,
   INITIAL_SETTINGS,
+  INITIAL_STAFF_USERS,
 } from './seeder';
 
 export class PharmPulseDB extends Dexie {
@@ -34,27 +36,35 @@ export class PharmPulseDB extends Dexie {
   settings!: Table<StoreSettings, string>;
   sync_outbox!: Table<SyncOutboxItem, string>;
   held_sales!: Table<HeldSale, string>;
+  staff_users!: Table<StaffUser, string>;
 
   constructor() {
     super('PharmPulseDB');
 
-    this.version(1).stores({
+    this.version(2).stores({
       products: 'id, tenantId, name, genericName, sku, barcode, category, dosageForm, isPom, synced, updated_at',
       batches: 'id, tenantId, productId, batchNumber, expiryDate, isQuarantined, synced, updated_at, [productId+expiryDate]',
-      sales: 'id, tenantId, receiptNumber, status, paymentMethod, attendantName, created_at, synced, updated_at',
+      sales: 'id, tenantId, receiptNumber, status, paymentMethod, attendantId, attendantName, created_at, synced, updated_at',
       sale_items: 'id, tenantId, saleId, productId, batchId, created_at, synced',
-      stock_adjustments: 'id, tenantId, productId, batchId, adjustmentType, created_at, synced',
-      audit_logs: 'id, tenantId, action, category, attendantName, created_at, synced',
+      stock_adjustments: 'id, tenantId, productId, batchId, adjustmentType, attendantId, created_at, synced',
+      audit_logs: 'id, tenantId, action, category, attendantId, attendantName, created_at, synced',
       license: 'id, tenantId, licenseKey, isValid',
       settings: 'id, tenantId',
       sync_outbox: 'id, tenantId, table, action, created_at',
-      held_sales: 'id, heldAt',
+      held_sales: 'id, heldAt, attendantId',
+      staff_users: 'id, tenantId, username, role, isActive',
     });
   }
 
   // Seed default data if database is fresh
   async seedIfEmpty() {
     const productCount = await this.products.count();
+    const staffCount = await this.staff_users.count();
+
+    if (staffCount === 0) {
+      await this.staff_users.bulkPut(INITIAL_STAFF_USERS);
+    }
+
     if (productCount === 0) {
       console.log('Seeding initial pharmacy database...');
       await this.transaction('rw', [
@@ -64,6 +74,7 @@ export class PharmPulseDB extends Dexie {
         this.sale_items,
         this.audit_logs,
         this.settings,
+        this.staff_users,
       ], async () => {
         await this.settings.put(INITIAL_SETTINGS);
         await this.products.bulkPut(INITIAL_PRODUCTS);
@@ -75,9 +86,35 @@ export class PharmPulseDB extends Dexie {
         }
 
         await this.audit_logs.bulkPut(INITIAL_AUDIT_LOGS);
+        if (staffCount === 0) {
+          await this.staff_users.bulkPut(INITIAL_STAFF_USERS);
+        }
       });
       console.log('PharmPulse database seeded successfully.');
     }
+  }
+
+  // Authenticate staff with username/id and PIN
+  async authenticateStaff(identifier: string, pin: string): Promise<StaffUser | null> {
+    const user = await this.staff_users
+      .filter((u) => (u.id === identifier || u.username.toLowerCase() === identifier.toLowerCase()) && u.isActive)
+      .first();
+
+    if (user && user.pin === pin) {
+      const now = new Date().toISOString();
+      await this.staff_users.update(user.id, { lastLoginAt: now });
+      await this.logAudit(
+        user.tenantId,
+        'STAFF_LOGIN',
+        'auth',
+        `Staff member logged in: ${user.fullName} (${user.role.toUpperCase()})`,
+        user.fullName,
+        user.id,
+        user.id
+      );
+      return { ...user, lastLoginAt: now };
+    }
+    return null;
   }
 
   // Queue mutation for remote sync
@@ -105,10 +142,11 @@ export class PharmPulseDB extends Dexie {
   async logAudit(
     tenantId: string,
     action: string,
-    category: 'pos' | 'inventory' | 'license' | 'system' | 'supervision',
+    category: 'pos' | 'inventory' | 'license' | 'system' | 'supervision' | 'auth',
     details: string,
     attendantName: string,
     entityId?: string,
+    attendantId?: string,
     metadata?: Record<string, unknown>
   ) {
     const log: AuditLog = {
@@ -118,6 +156,7 @@ export class PharmPulseDB extends Dexie {
       category,
       details,
       entityId,
+      attendantId,
       attendantName,
       metadata,
       synced: false,
@@ -134,19 +173,16 @@ export class PharmPulseDB extends Dexie {
       .equals(productId)
       .toArray();
 
-    // Filter available batches: not quarantined and quantity > 0
     const available = batches.filter(
       (b) => !b.isQuarantined && b.quantity > 0
     );
 
     if (available.length === 0) {
-      // Fallback: return any non-quarantined batch even if qty 0 so POS can show stock
       const nonQuarantined = batches.filter((b) => !b.isQuarantined);
       if (nonQuarantined.length === 0) return batches[0];
       return nonQuarantined.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0];
     }
 
-    // Sort by earliest expiration date first
     available.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
     return available[0];
   }
@@ -154,6 +190,7 @@ export class PharmPulseDB extends Dexie {
   // Record a high-speed counter sale with atomic inventory depletion
   async checkoutSale({
     tenantId,
+    attendantId,
     attendantName,
     items,
     paymentMethod,
@@ -167,6 +204,7 @@ export class PharmPulseDB extends Dexie {
     tax = 0,
   }: {
     tenantId: string;
+    attendantId?: string;
     attendantName: string;
     items: CartItem[];
     paymentMethod: PaymentMethod;
@@ -183,7 +221,6 @@ export class PharmPulseDB extends Dexie {
     const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
     const total = Math.max(0, subtotal - discount + tax);
     const costOfGoods = items.reduce((sum, item) => {
-      // Calculate item cost
       const packCost = item.costPrice;
       const effectiveCost = item.unitType === 'pack' 
         ? packCost * item.quantity 
@@ -221,6 +258,7 @@ export class PharmPulseDB extends Dexie {
       paymentDetails,
       amountPaid,
       changeGiven,
+      attendantId,
       attendantName,
       patientName,
       patientPhone,
@@ -236,7 +274,6 @@ export class PharmPulseDB extends Dexie {
 
     const saleItemsList: SaleItem[] = [];
 
-    // Run transaction across tables for atomic consistency
     await this.transaction(
       'rw',
       [this.sales, this.sale_items, this.batches, this.products, this.audit_logs, this.sync_outbox],
@@ -270,7 +307,6 @@ export class PharmPulseDB extends Dexie {
           await this.sale_items.put(sItem);
           await this.queueOutbox(tenantId, 'sale_items', 'INSERT', sItem.id, sItem as unknown as Record<string, unknown>);
 
-          // Deduct from batch quantity
           const batch = await this.batches.get(item.batchId);
           if (batch) {
             const deductionInPacks = item.unitType === 'pack' 
@@ -291,19 +327,22 @@ export class PharmPulseDB extends Dexie {
             });
           }
 
-          // Update product timestamp
           await this.products.update(item.productId, {
             updated_at: now,
           });
         }
 
-        // Audit log
-        const auditText = `Completed sale ${receiptNumber} (${paymentMethod.toUpperCase()}) for ${total.toLocaleString()} - ${items.length} items`;
-        await this.logAudit(tenantId, 'SALE_COMPLETED', 'pos', auditText, attendantName, saleId, {
-          receiptNumber,
-          total,
-          paymentMethod,
-        });
+        const auditText = `Sale completed by ${attendantName}: ${receiptNumber} (${paymentMethod.toUpperCase()}) for ${total.toLocaleString()}`;
+        await this.logAudit(
+          tenantId,
+          'SALE_COMPLETED',
+          'pos',
+          auditText,
+          attendantName,
+          saleId,
+          attendantId,
+          { receiptNumber, total, paymentMethod }
+        );
       }
     );
 
@@ -316,8 +355,9 @@ export class PharmPulseDB extends Dexie {
     productId,
     batchId,
     adjustmentType,
-    quantityChange, // pack units change (can be positive or negative)
+    quantityChange,
     reason,
+    attendantId,
     attendantName,
   }: {
     tenantId: string;
@@ -326,6 +366,7 @@ export class PharmPulseDB extends Dexie {
     adjustmentType: StockAdjustmentType;
     quantityChange: number;
     reason: string;
+    attendantId?: string;
     attendantName: string;
   }): Promise<StockAdjustment> {
     const now = new Date().toISOString();
@@ -352,6 +393,7 @@ export class PharmPulseDB extends Dexie {
       previousQuantity,
       newQuantity,
       reason,
+      attendantId,
       attendantName,
       synced: false,
       created_at: now,
@@ -376,8 +418,17 @@ export class PharmPulseDB extends Dexie {
         });
 
         const sign = quantityChange >= 0 ? '+' : '';
-        const auditText = `Stock adjusted for ${product.name} (Batch ${batch.batchNumber}): ${sign}${quantityChange} packs. Reason: ${reason} [${adjustmentType}]`;
-        await this.logAudit(tenantId, 'STOCK_ADJUSTED', 'inventory', auditText, attendantName, adjId);
+        const auditText = `Stock adjusted by ${attendantName} for ${product.name} (Batch ${batch.batchNumber}): ${sign}${quantityChange} packs. Reason: ${reason} [${adjustmentType}]`;
+        await this.logAudit(
+          tenantId,
+          'STOCK_ADJUSTED',
+          'inventory',
+          auditText,
+          attendantName,
+          adjId,
+          attendantId,
+          { adjustmentType, quantityChange, reason }
+        );
       }
     );
 

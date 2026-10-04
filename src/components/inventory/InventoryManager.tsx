@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Batch, DosageForm, StoreSettings, StoreLicense } from '../../types';
+import { Product, Batch, DosageForm, StoreSettings, StoreLicense, StaffUser } from '../../types';
 import { db } from '../../db/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -13,6 +13,8 @@ import {
   Edit2,
   AlertCircle,
   Download,
+  Lock,
+  Crown,
 } from 'lucide-react';
 import { formatCurrency, getDosageFormBadge } from '../../lib/formatters';
 import { ProductModal } from './ProductModal';
@@ -22,12 +24,14 @@ import { BatchListModal } from './BatchListModal';
 interface InventoryManagerProps {
   settings: StoreSettings | null;
   license: StoreLicense | null;
+  currentUser: StaffUser;
 }
 
-export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings, license }) => {
+export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings, license, currentUser }) => {
   const currency = settings?.currencySymbol || 'TSh';
   const tenantId = license?.tenantId || settings?.tenantId || 'demo-tenant-pharmpulse';
-  const currentAttendant = settings?.currentAttendant || 'Pharmacist';
+  const isOwner = currentUser.role === 'owner';
+  const currentAttendant = currentUser.fullName;
 
   // Live query for products and batches
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
@@ -156,18 +160,20 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings, li
             onClick={() => setIsAdjustmentModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition"
           >
-            <Sliders className="w-3.5 h-3.5" /> Adjust Stock / Damage
+            <Sliders className="w-3.5 h-3.5" /> Adjust Stock / Incident
           </button>
 
-          <button
-            onClick={() => {
-              setEditingProduct(null);
-              setIsProductModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold shadow transition active:scale-95"
-          >
-            <Plus className="w-4 h-4" /> Add Formulary Drug
-          </button>
+          {isOwner && (
+            <button
+              onClick={() => {
+                setEditingProduct(null);
+                setIsProductModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold shadow transition active:scale-95"
+            >
+              <Plus className="w-4 h-4" /> Add Formulary Drug
+            </button>
+          )}
         </div>
       </div>
 
@@ -326,7 +332,11 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings, li
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono text-slate-500">
-                        {formatCurrency(p.buyingPrice, currency)}
+                        {isOwner ? (
+                          formatCurrency(p.buyingPrice, currency)
+                        ) : (
+                          <span className="text-slate-400 font-mono text-[11px] italic">*** (Owner)</span>
+                        )}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -347,16 +357,20 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ settings, li
                       </td>
 
                       <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => {
-                            setEditingProduct(p);
-                            setIsProductModalOpen(true);
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition"
-                          title="Edit product formulation"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        {isOwner ? (
+                          <button
+                            onClick={() => {
+                              setEditingProduct(p);
+                              setIsProductModalOpen(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition"
+                            title="Edit product formulation (Owner Only)"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-mono">Locked</span>
+                        )}
                       </td>
                     </tr>
                   );

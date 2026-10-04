@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db/db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { StoreLicense, StoreSettings } from './types';
+import { StoreLicense, StoreSettings, StaffUser } from './types';
 import { getActiveLicense } from './lib/license';
 import { Header } from './components/common/Header';
 import { MobileNav } from './components/common/MobileNav';
@@ -13,7 +13,9 @@ import { InventoryManager } from './components/inventory/InventoryManager';
 import { ExpiryMonitor } from './components/expiry/ExpiryMonitor';
 import { OwnerHub } from './components/supervision/OwnerHub';
 import { SettingsModal } from './components/settings/SettingsModal';
-import { AlertTriangle, ShieldCheck } from 'lucide-react';
+import { StaffAuthScreen } from './components/auth/StaffAuthScreen';
+import { MyShiftModal } from './components/staff/MyShiftModal';
+import { AlertTriangle } from 'lucide-react';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<'pos' | 'inventory' | 'expiry' | 'hub'>('pos');
@@ -26,6 +28,20 @@ export function App() {
   const [isLicenseInfoModalOpen, setIsLicenseInfoModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isMyShiftModalOpen, setIsMyShiftModalOpen] = useState(false);
+
+  // Authenticated staff user session
+  const [currentUser, setCurrentUser] = useState<StaffUser | null>(() => {
+    const saved = localStorage.getItem('pharmpulse_active_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
 
   // Live Settings
   const settingsList = useLiveQuery(() => db.settings.toArray(), []) || [];
@@ -39,6 +55,24 @@ export function App() {
     setLicenseStatus(licResult.status);
     setDaysRemaining(licResult.daysRemaining);
 
+    // Validate saved user session against DB
+    const saved = localStorage.getItem('pharmpulse_active_user');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const userInDb = await db.staff_users.get(parsed.id);
+        if (userInDb && userInDb.isActive) {
+          setCurrentUser(userInDb);
+        } else {
+          localStorage.removeItem('pharmpulse_active_user');
+          setCurrentUser(null);
+        }
+      } catch {
+        localStorage.removeItem('pharmpulse_active_user');
+        setCurrentUser(null);
+      }
+    }
+
     if (licResult.status === 'unactivated' || licResult.status === 'expired') {
       setIsActivationModalOpen(true);
     }
@@ -48,14 +82,65 @@ export function App() {
     checkStatus();
   }, []);
 
-  const handleAttendantChange = async (name: string) => {
-    if (settings) {
-      await db.settings.update(settings.id, { currentAttendant: name });
+  // Guard against non-owners accessing the Owner Supervision Hub
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'owner' && currentTab === 'hub') {
+      setCurrentTab('pos');
+    }
+  }, [currentUser, currentTab]);
+
+  const handleLogin = (user: StaffUser) => {
+    setCurrentUser(user);
+    localStorage.setItem('pharmpulse_active_user', JSON.stringify(user));
+    // If owner signs in, direct to Owner Supervision Hub; normal staff goes directly to Counter POS
+    if (user.role === 'owner') {
+      setCurrentTab('hub');
+    } else {
+      setCurrentTab('pos');
     }
   };
 
+  const handleLockTerminal = () => {
+    localStorage.removeItem('pharmpulse_active_user');
+    setCurrentUser(null);
+  };
+
+  // If no attendant is signed in, present the Shift Sign-In Terminal
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col justify-center">
+        <StaffAuthScreen
+          onAuthenticated={handleLogin}
+          storeName={settings?.storeName || license?.storeName || 'PharmPulse Dispensary'}
+        />
+
+        {/* Activation Gate Modal (if store needs activation) */}
+        <ActivationModal
+          isOpen={isActivationModalOpen}
+          canClose={licenseStatus === 'active' || licenseStatus === 'grace_period'}
+          onActivated={(activatedLic) => {
+            setLicense(activatedLic);
+            setLicenseStatus('active');
+            setDaysRemaining(7);
+            setIsActivationModalOpen(false);
+            checkStatus();
+          }}
+          onClose={() => setIsActivationModalOpen(false)}
+        />
+      </div>
+    );
+  }
+
+  const isOwner = currentUser.role === 'owner';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-16 md:pb-0">
+    <div
+      className={`min-h-screen flex flex-col pb-16 md:pb-0 transition-colors ${
+        isOwner
+          ? 'bg-slate-950 text-slate-100'
+          : 'bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100'
+      }`}
+    >
       {/* 7-Day Offline Grace Window Alert Banner */}
       {licenseStatus === 'grace_period' && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold flex items-center justify-between no-print">
@@ -74,10 +159,11 @@ export function App() {
         </div>
       )}
 
-      {/* Main Top Header */}
+      {/* Main Top Header with Role Differentiation */}
       <Header
         currentTab={currentTab}
         onTabChange={setCurrentTab}
+        currentUser={currentUser}
         license={license}
         licenseStatus={licenseStatus}
         daysRemaining={daysRemaining}
@@ -91,25 +177,26 @@ export function App() {
         }}
         onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
-        onAttendantChange={handleAttendantChange}
+        onOpenMyShiftModal={() => setIsMyShiftModalOpen(true)}
+        onLockTerminal={handleLockTerminal}
       />
 
       {/* Active Workspace View */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {currentTab === 'pos' && (
-          <CounterPos settings={settings} license={license} />
+          <CounterPos settings={settings} license={license} currentUser={currentUser} />
         )}
 
         {currentTab === 'inventory' && (
-          <InventoryManager settings={settings} license={license} />
+          <InventoryManager settings={settings} license={license} currentUser={currentUser} />
         )}
 
         {currentTab === 'expiry' && (
           <ExpiryMonitor settings={settings} license={license} />
         )}
 
-        {currentTab === 'hub' && (
-          <OwnerHub settings={settings} license={license} />
+        {currentTab === 'hub' && isOwner && (
+          <OwnerHub settings={settings} license={license} currentUser={currentUser} />
         )}
       </main>
 
@@ -117,7 +204,9 @@ export function App() {
       <MobileNav
         currentTab={currentTab}
         onTabChange={setCurrentTab}
+        currentUser={currentUser}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenMyShift={() => setIsMyShiftModalOpen(true)}
       />
 
       {/* Activation Gate Modal */}
@@ -151,13 +240,23 @@ export function App() {
         onClose={() => setIsShortcutsModalOpen(false)}
       />
 
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        settings={settings}
-        license={license}
-        onSaved={checkStatus}
-        onClose={() => setIsSettingsModalOpen(false)}
+      {/* Store Settings Modal (Only available for Owner) */}
+      {isOwner && (
+        <SettingsModal
+          isOpen={isSettingsModalOpen}
+          settings={settings}
+          license={license}
+          onSaved={checkStatus}
+          onClose={() => setIsSettingsModalOpen(false)}
+        />
+      )}
+
+      {/* Staff My Shift Drawer Modal */}
+      <MyShiftModal
+        isOpen={isMyShiftModalOpen}
+        currentUser={currentUser}
+        currencySymbol={settings?.currencySymbol || 'TSh'}
+        onClose={() => setIsMyShiftModalOpen(false)}
       />
     </div>
   );

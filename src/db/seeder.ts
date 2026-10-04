@@ -1,4 +1,60 @@
-import { Product, Batch, Sale, SaleItem, AuditLog, StoreSettings } from '../types';
+import { Product, Batch, Sale, SaleItem, AuditLog, StoreSettings, StaffUser } from '../types';
+
+export const INITIAL_STAFF_USERS: StaffUser[] = [
+  {
+    id: 'user-owner-001',
+    tenantId: 'demo-tenant-pharmpulse',
+    username: 'owner',
+    fullName: 'Dr. Emmanuel Mushi',
+    role: 'owner',
+    pin: '1234',
+    phone: '+255 784 920 110',
+    email: 'director@auracarepharm.com',
+    isActive: true,
+    avatarColor: 'bg-amber-600',
+    created_at: new Date(Date.now() - 90 * 86400000).toISOString(),
+    lastLoginAt: new Date().toISOString(),
+  },
+  {
+    id: 'user-staff-001',
+    tenantId: 'demo-tenant-pharmpulse',
+    username: 'david',
+    fullName: 'Pharm. David Ndunguru',
+    role: 'pharmacist',
+    pin: '1111',
+    phone: '+255 754 112 233',
+    isActive: true,
+    avatarColor: 'bg-teal-600',
+    created_at: new Date(Date.now() - 60 * 86400000).toISOString(),
+    lastLoginAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: 'user-staff-002',
+    tenantId: 'demo-tenant-pharmpulse',
+    username: 'sarah',
+    fullName: 'Sarah Kavishe',
+    role: 'dispenser',
+    pin: '2222',
+    phone: '+255 713 445 566',
+    isActive: true,
+    avatarColor: 'bg-blue-600',
+    created_at: new Date(Date.now() - 45 * 86400000).toISOString(),
+    lastLoginAt: new Date(Date.now() - 7200000).toISOString(),
+  },
+  {
+    id: 'user-staff-003',
+    tenantId: 'demo-tenant-pharmpulse',
+    username: 'amina',
+    fullName: 'Amina Juma',
+    role: 'cashier',
+    pin: '3333',
+    phone: '+255 768 778 899',
+    isActive: true,
+    avatarColor: 'bg-purple-600',
+    created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+    lastLoginAt: new Date(Date.now() - 14400000).toISOString(),
+  },
+];
 
 export const INITIAL_SETTINGS: StoreSettings = {
   id: 'default-settings',
@@ -11,7 +67,7 @@ export const INITIAL_SETTINGS: StoreSettings = {
   tinNumber: 'TIN-114-889-402',
   currencySymbol: 'TSh',
   currencyCode: 'TZS',
-  taxRate: 0, // Most pharmaceuticals are VAT exempt, configurable in settings
+  taxRate: 0,
   taxInclusive: true,
   enableSoundBeeps: true,
   currentAttendant: 'Pharm. David Ndunguru',
