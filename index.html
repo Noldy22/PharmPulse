@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PharmPulse" />
+    <meta name="description" content="PharmPulse — Offline-First Pharmacy Management System, High-Speed Counter POS, FEFO Batch Expiry Control, and Owner Remote Supervision Hub." />
+    <title>PharmPulse — Offline-First Pharmacy Management & POS</title>
+  </head>
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('[PharmPulse PWA] Service Worker registered:', reg.scope))
+            .catch(err => console.log('[PharmPulse PWA] Service Worker registration failed:', err));
+        });
+      }
+    </script>
+  </body>
+</html>

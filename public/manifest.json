@@ -1,0 +1,19 @@
+{
+  "name": "PharmPulse — Offline Pharmacy Management & POS",
+  "short_name": "PharmPulse",
+  "description": "High-Speed Offline-First Pharmacy Management System, Counter POS, FEFO Expiry Control & Remote Supervision Hub",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f766e",
+  "orientation": "any",
+  "categories": ["medical", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

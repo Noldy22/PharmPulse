@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #0f766e;
+    --primary-dark: #115e59;
+    --primary-light: #14b8a6;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-teal-500 selection:text-white min-h-screen;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+}
+
+/* Custom scrollbars for dense pharmacy data tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}
+
+/* Thermal receipt and A4 print styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #thermal-receipt-print,
+  #thermal-receipt-print *,
+  #a4-invoice-print,
+  #a4-invoice-print * {
+    visibility: visible;
+  }
+
+  #thermal-receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 2mm !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  #a4-invoice-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  @page {
+    margin: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
